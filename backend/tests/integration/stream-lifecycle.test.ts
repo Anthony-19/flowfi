@@ -607,10 +607,11 @@ describe("Stream Lifecycle Integration Tests", () => {
 
     it("dedupes worker replay of the same event without creating a second row", async () => {
       const streamId = 12;
-      const event = createStreamCreatedEvent(streamId);
+      const txHash = "worker-replay-dedup-tx-hash";
+      const event = { ...createStreamCreatedEvent(streamId), txHash };
 
       await worker.processEvent(event);
-      await worker.processEvent(event);
+      await expect(worker.processEvent(event)).resolves.toBeUndefined();
 
       const count = await testPrisma.streamEvent.count({
         where: {
