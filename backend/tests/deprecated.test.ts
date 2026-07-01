@@ -5,7 +5,7 @@ import app from '../src/app.js';
 // This file tests deprecated endpoints WITHOUT any Prisma mocking
 // so the real route handlers respond directly without interference.
 
-describe('Deprecated route responses', () => {
+describe('Removed unversioned routes', () => {
     it('POST /streams returns 404 Not Found', async () => {
         const response = await request(app)
             .post('/streams')
