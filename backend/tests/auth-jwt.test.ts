@@ -39,11 +39,15 @@ describe('JWT helpers', () => {
     expect(verifyJwt(parts.join('.'))).toBeNull();
   });
 
+
   it('returns null for a tampered signature', async () => {
     const now = Math.floor(Date.now() / 1000);
     const token = signJwt({ sub: 'GTESTPUBLICKEY123', iat: now, exp: now + 3600 });
     const parts = token.split('.') as [string, string, string];
-    parts[2] = parts[2].slice(0, -1) + (parts[2].slice(-1) === 'A' ? 'B' : 'A');
+
+    const i = Math.floor(parts[2].length / 2); // tamper a middle char, not the last
+    const c = parts[2][i];
+    parts[2] = parts[2].slice(0, i) + (c === 'A' ? 'B' : 'A') + parts[2].slice(i + 1);
 
     expect(verifyJwt(parts.join('.'))).toBeNull();
   });
