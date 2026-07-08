@@ -1,4 +1,5 @@
-﻿#![no_std]
+#![no_std]
+#![doc = include_str!("../README.md")]
 
 mod errors;
 mod events;
@@ -174,9 +175,10 @@ impl StreamContract {
     /// Returns the new stream ID (starts at 1, increments monotonically).
     ///
     /// # Errors
-    /// - `InvalidAmount`   ΓÇö `amount` Γëñ 0.
-    /// - `InvalidDuration` ΓÇö `duration` is 0.
-    /// - `InvalidTokenAddress` ΓÇö `token_address` is not a token contract.
+    /// - `InvalidAmount`   — `amount` ≤ 0.
+    /// - `InvalidDuration` — `duration` is 0.
+    /// - `InvalidRate`     — `net_amount / duration` rounds to zero.
+    /// - `InvalidTokenAddress` — `token_address` is not a token contract.
     pub fn create_stream(
         env: Env,
         sender: Address,
@@ -508,7 +510,6 @@ impl StreamContract {
         let refunded_amount = stream
             .deposited_amount
             .saturating_sub(stream.withdrawn_amount);
-
         stream.is_active = false;
         stream.status = StreamStatus::Cancelled;
         stream.paused = false;
@@ -599,6 +600,12 @@ impl StreamContract {
         let mut stream = load_stream(&env, stream_id)?;
         Self::validate_stream_ownership(&stream, &sender)?;
 
+        // Reject if the stream is not in Paused status — this covers streams
+        // that were cancelled while paused (is_active=false, paused=true).
+        if stream.status != StreamStatus::Paused {
+            return Err(StreamError::StreamInactive);
+        }
+
         if !stream.paused {
             return Err(StreamError::StreamInactive);
         }
@@ -635,6 +642,20 @@ impl StreamContract {
 
     // ΓöÇΓöÇΓöÇ Read-only Queries ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
+    /// Returns the total number of streams ever created (monotonically increasing).
+    ///
+    /// This is the global stream ID counter, not the count of currently active
+    /// streams. It equals the highest stream ID that has been assigned, making
+    /// it useful for cursor-based or offset pagination without a full DB scan.
+    ///
+    /// Returns `0` on a freshly-deployed contract where no stream has been created.
+    pub fn stream_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&crate::types::DataKey::StreamCounter)
+            .unwrap_or(0)
+    }
+
     /// Returns the stream record for `stream_id`, or `None` if it does not exist.
     pub fn get_stream(env: Env, stream_id: u64) -> Option<Stream> {
         try_load_stream(&env, stream_id)
@@ -669,6 +690,7 @@ impl StreamContract {
     /// emits a `fee_collected` event, and returns the net amount.
     ///
     /// If no protocol config exists or the fee rate is 0, returns `amount` unchanged.
+    /// If fee calculation truncates to 0, no transfer/event occurs and `amount` is unchanged.
     /// Time complexity: O(1).
     fn collect_fee(env: &Env, token_address: &Address, amount: i128, stream_id: u64) -> i128 {
         match try_load_config(env) {
